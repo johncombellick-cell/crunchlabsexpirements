@@ -64,6 +64,8 @@ uint16_t  songTimer   = 0;
 bool      songPlaying = false;
 bool      songRest    = false;
 
+bool      axis        = false;  // alternates X/Y touchpad read each cycle
+
 Smooth<int> kSmoothFreq1(SMOOTH_FREQ_NORMAL);
 Smooth<int> kSmoothFreq2(SMOOTH_FREQ_NORMAL);
 Smooth<int> kSmoothGain(SMOOTH_GAIN_FAST);
@@ -93,11 +95,29 @@ int ycoor() {
   return mozziAnalogRead<ADC_RESOLUTION>(TOUCHPAD_X1);
 }
 
+int xcoor() {
+  pinMode(TOUCHPAD_X1, OUTPUT);
+  pinMode(TOUCHPAD_X2, OUTPUT);
+  pinMode(TOUCHPAD_Y1, INPUT);
+  pinMode(TOUCHPAD_Y2, INPUT);
+  digitalWrite(TOUCHPAD_X1, LOW);
+  digitalWrite(TOUCHPAD_X2, HIGH);
+  return mozziAnalogRead<ADC_RESOLUTION>(TOUCHPAD_Y1);
+}
+
 // ---------------------------------------------------------------------------
 // Control
 // ---------------------------------------------------------------------------
 void readInputs() {
-  yVal   = constrain(ycoor(), TOUCHPAD_Y_MIN, TOUCHPAD_Y_MAX);
+  // Resistive touchpad requires alternating X/Y reads each cycle.
+  // Without driving X, the sense pins float and Y always reads as "touched".
+  if (axis) {
+    yVal = constrain(ycoor(), TOUCHPAD_Y_MIN, TOUCHPAD_Y_MAX);
+  } else {
+    xcoor();  // drive X pins to settle the pad; reading discarded
+  }
+  axis = !axis;
+
   botPot = mozziAnalogRead<ADC_RESOLUTION>(POT_PIN1);
   hiPot  = mozziAnalogRead<ADC_RESOLUTION>(POT_PIN3);
   prox   = digitalRead(PROX_PIN);
