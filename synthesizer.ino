@@ -123,48 +123,38 @@ uint8_t  volumeSet2 = 0;
 
 waveState wave2 = TRIANGLE;
 
-// === ODE TO JOY MELODY ===
-// Two phrases of Ode to Joy in MIDI note numbers (E4=64, key of C major).
-// Quarter note at 120 BPM = 500 ms = 64 control cycles at CONTROL_RATE 128 Hz.
-// 255 = rest marker (silence for one beat between phrase endings).
-#define REST 255
-
-static const uint8_t ODE_NOTES[] PROGMEM = {
-  // Phrase 1: E E F G | G F E D | C C D E | E. D D rest
-  64, 64, 65, 67,
-  67, 65, 64, 62,
-  60, 60, 62, 64,
-  64, 62, 62, REST,
-  // Phrase 2: E E F G | G F E D | C C D E | D. C C rest
-  64, 64, 65, 67,
-  67, 65, 64, 62,
-  60, 60, 62, 64,
-  62, 60, 60, REST
+// === NAME SPELLING: "LOGHANISC OOL" ===
+// Each letter maps to a MIDI note using a chromatic scale starting at C3 (MIDI 48).
+// A=48, B=49, C=50, D=51, E=52, F=53, G=54, H=55, I=56, J=57, K=58, L=59,
+// M=60, N=61, O=62, P=63, Q=64, R=65, S=66, T=67, U=68, V=69, W=70, X=71,
+// Y=72, Z=73
+// Each letter creates a unique frequency and a distinct laser waveform pattern.
+static const uint8_t NAME_NOTES[] PROGMEM = {
+  59,  // L (position 11) = B3
+  62,  // O (position 14) = D4
+  54,  // G (position  6) = F#3
+  55,  // H (position  7) = G3
+  48,  // A (position  0) = C3
+  61,  // N (position 13) = C#4
+  56,  // I (position  8) = G#3
+  66,  // S (position 18) = F#4
+  50,  // C (position  2) = D3
+  62,  // O (position 14) = D4
+  62,  // O (position 14) = D4
+  59   // L (position 11) = B3
 };
 
-// Durations in control cycles: 64=quarter, 96=dotted-quarter, 32=eighth.
-// Half notes are now split into a sounding quarter (64) + a rest quarter (64)
-// so the beat boundary is audible.
-static const uint8_t ODE_DURATIONS[] PROGMEM = {
-  // Phrase 1
-  64, 64, 64, 64,
-  64, 64, 64, 64,
-  64, 64, 64, 64,
-  96, 32, 64, 64,   // E. D | D(sound) rest(silence)
-  // Phrase 2
-  64, 64, 64, 64,
-  64, 64, 64, 64,
-  64, 64, 64, 64,
-  96, 32, 64, 64    // D. C | C(sound) rest(silence)
-};
+#define NAME_LENGTH      12   // Letters in "LOGHANISC OOL"
+// Each letter = exactly 0.5 s = 64 control cycles at 128 Hz.
+// Split into 56 cycles of sound + 8 cycles of silence so letters are distinct.
+#define NOTE_PLAY_CYCLES 56
+#define NOTE_REST_CYCLES  8
 
-static const uint8_t ODE_LENGTH = sizeof(ODE_NOTES);  // 32 entries
-
-// === MELODY PLAYBACK STATE ===
-uint8_t  melodyIndex   = 0;     // Current note position in ODE_NOTES
-uint16_t melodyTimer   = 0;     // Remaining control cycles for current note
-bool     melodyPlaying = false; // True while finger is on pad
-bool     melodyRest    = false; // True during rest beats (silences audio)
+// === NAME PLAYBACK STATE ===
+uint8_t  nameIndex   = 0;     // Current letter in NAME_NOTES
+uint16_t noteTimer   = 0;     // Counts 0 .. (NOTE_PLAY_CYCLES + NOTE_REST_CYCLES - 1)
+bool     namePlaying = false; // True while finger is on pad
+bool     noteRest    = false; // True during the silent gap between letters
 
 #pragma endregion Global Variables
 
@@ -248,54 +238,53 @@ void readInputs() {
 }
 
 /**
- * @brief Plays Ode to Joy when the pad is touched.
+ * @brief Spells "LOGHANISC OOL" on the laser when the pad is touched.
  *
- * Touch detected when yVal < TOUCHPAD_EDGE_DETECT.
- * Each note plays for its duration (in control cycles), then advances.
- * Releasing the pad resets the melody to the beginning.
+ * Each letter plays its unique frequency for NOTE_PLAY_CYCLES control cycles,
+ * then silences for NOTE_REST_CYCLES cycles, giving clear letter separation.
+ * Total per letter = 64 cycles = exactly 0.5 s at CONTROL_RATE 128 Hz.
+ * Releasing the pad resets to the first letter.
  */
 void selectNotes() {
   if (yVal < TOUCHPAD_EDGE_DETECT) {  // Finger on pad
-    if (!melodyPlaying) {
-      // Fresh touch — start melody from the top
-      melodyPlaying = true;
-      melodyIndex   = 0;
-      melodyTimer   = pgm_read_byte(&ODE_DURATIONS[0]);
+    if (!namePlaying) {
+      namePlaying = true;
+      nameIndex   = 0;
+      noteTimer   = 0;
     }
 
-    // Set both voices to the current melody note, or rest if marked 255
-    uint8_t midiNote = pgm_read_byte(&ODE_NOTES[melodyIndex]);
-    if (midiNote == REST) {
-      melodyRest = true;   // silence handled in setGains()
-    } else {
-      melodyRest  = false;
+    if (noteTimer < NOTE_PLAY_CYCLES) {
+      // Sound phase: hold the current letter's frequency
+      noteRest    = false;
+      uint8_t midiNote = pgm_read_byte(&NAME_NOTES[nameIndex]);
       targetNote1 = mtof(midiNote);
       targetNote2 = targetNote1;
       frequency1  = kSmoothFreq1.next(targetNote1);
       frequency2  = kSmoothFreq2.next(targetNote2);
       wave2 = (waveState)waveSet;
       setFrequencies();
+    } else {
+      // Rest phase: brief silence between letters
+      noteRest = true;
     }
 
-    // Count down current note duration, then step to next note
-    if (melodyTimer > 0) {
-      melodyTimer--;
-    } else {
-      melodyIndex = (melodyIndex + 1) % ODE_LENGTH;
-      melodyTimer = pgm_read_byte(&ODE_DURATIONS[melodyIndex]);
+    noteTimer++;
+    if (noteTimer >= NOTE_PLAY_CYCLES + NOTE_REST_CYCLES) {
+      noteTimer = 0;
+      nameIndex = (nameIndex + 1) % NAME_LENGTH;
     }
 
   } else {
-    // Finger off pad — reset so next touch starts from the beginning
-    melodyPlaying = false;
-    melodyRest    = false;
-    melodyIndex   = 0;
-    melodyTimer   = 0;
+    // Finger off — reset to first letter for next touch
+    namePlaying = false;
+    noteRest    = false;
+    nameIndex   = 0;
+    noteTimer   = 0;
   }
 }
 
 void setGains() {
-  if (yVal < TOUCHPAD_EDGE_DETECT && !melodyRest) {
+  if (yVal < TOUCHPAD_EDGE_DETECT && !noteRest) {
     if (lfoMode) {
       float lfoMod  = getLFOModulation();
       float lfoGain = gainSet * lfoMod;
