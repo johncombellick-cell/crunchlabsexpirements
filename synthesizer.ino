@@ -126,39 +126,45 @@ waveState wave2 = TRIANGLE;
 // === ODE TO JOY MELODY ===
 // Two phrases of Ode to Joy in MIDI note numbers (E4=64, key of C major).
 // Quarter note at 120 BPM = 500 ms = 64 control cycles at CONTROL_RATE 128 Hz.
+// 255 = rest marker (silence for one beat between phrase endings).
+#define REST 255
+
 static const uint8_t ODE_NOTES[] PROGMEM = {
-  // Phrase 1: E E F G | G F E D | C C D E | E. D D
+  // Phrase 1: E E F G | G F E D | C C D E | E. D D rest
   64, 64, 65, 67,
   67, 65, 64, 62,
   60, 60, 62, 64,
-  64, 62, 62,
-  // Phrase 2: E E F G | G F E D | C C D E | D. C C
+  64, 62, 62, REST,
+  // Phrase 2: E E F G | G F E D | C C D E | D. C C rest
   64, 64, 65, 67,
   67, 65, 64, 62,
   60, 60, 62, 64,
-  62, 60, 60
+  62, 60, 60, REST
 };
 
-// Durations in control cycles: 64=quarter, 96=dotted-quarter, 32=eighth, 128=half
+// Durations in control cycles: 64=quarter, 96=dotted-quarter, 32=eighth.
+// Half notes are now split into a sounding quarter (64) + a rest quarter (64)
+// so the beat boundary is audible.
 static const uint8_t ODE_DURATIONS[] PROGMEM = {
   // Phrase 1
   64, 64, 64, 64,
   64, 64, 64, 64,
   64, 64, 64, 64,
-  96, 32, 128,
+  96, 32, 64, 64,   // E. D | D(sound) rest(silence)
   // Phrase 2
   64, 64, 64, 64,
   64, 64, 64, 64,
   64, 64, 64, 64,
-  96, 32, 128
+  96, 32, 64, 64    // D. C | C(sound) rest(silence)
 };
 
-static const uint8_t ODE_LENGTH = sizeof(ODE_NOTES);  // 30 notes
+static const uint8_t ODE_LENGTH = sizeof(ODE_NOTES);  // 32 entries
 
 // === MELODY PLAYBACK STATE ===
-uint8_t  melodyIndex   = 0;    // Current note position in ODE_NOTES
-uint16_t melodyTimer   = 0;    // Remaining control cycles for current note
+uint8_t  melodyIndex   = 0;     // Current note position in ODE_NOTES
+uint16_t melodyTimer   = 0;     // Remaining control cycles for current note
 bool     melodyPlaying = false; // True while finger is on pad
+bool     melodyRest    = false; // True during rest beats (silences audio)
 
 #pragma endregion Global Variables
 
@@ -257,15 +263,19 @@ void selectNotes() {
       melodyTimer   = pgm_read_byte(&ODE_DURATIONS[0]);
     }
 
-    // Set both voices to the current melody note
+    // Set both voices to the current melody note, or rest if marked 255
     uint8_t midiNote = pgm_read_byte(&ODE_NOTES[melodyIndex]);
-    targetNote1 = mtof(midiNote);
-    targetNote2 = targetNote1;
-    frequency1  = kSmoothFreq1.next(targetNote1);
-    frequency2  = kSmoothFreq2.next(targetNote2);
-
-    wave2 = (waveState)waveSet;
-    setFrequencies();
+    if (midiNote == REST) {
+      melodyRest = true;   // silence handled in setGains()
+    } else {
+      melodyRest  = false;
+      targetNote1 = mtof(midiNote);
+      targetNote2 = targetNote1;
+      frequency1  = kSmoothFreq1.next(targetNote1);
+      frequency2  = kSmoothFreq2.next(targetNote2);
+      wave2 = (waveState)waveSet;
+      setFrequencies();
+    }
 
     // Count down current note duration, then step to next note
     if (melodyTimer > 0) {
@@ -278,13 +288,14 @@ void selectNotes() {
   } else {
     // Finger off pad — reset so next touch starts from the beginning
     melodyPlaying = false;
+    melodyRest    = false;
     melodyIndex   = 0;
     melodyTimer   = 0;
   }
 }
 
 void setGains() {
-  if (yVal < TOUCHPAD_EDGE_DETECT) {
+  if (yVal < TOUCHPAD_EDGE_DETECT && !melodyRest) {
     if (lfoMode) {
       float lfoMod  = getLFOModulation();
       float lfoGain = gainSet * lfoMod;
