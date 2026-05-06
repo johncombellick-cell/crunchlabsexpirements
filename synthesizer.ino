@@ -1,5 +1,5 @@
 /*
-  CrunchLabs Synthesizer — Eye of the Tiger
+  CrunchLabs Synthesizer — Everything Is Awesome
   Touch the pad to play. Release to stop and reset to the beginning.
 */
 
@@ -15,24 +15,32 @@
 #include "wavetables.h"
 
 // ---------------------------------------------------------------------------
-// Eye of the Tiger — main verse riff (C minor, ~109 BPM)
-// Control rate = 128 Hz  →  16th ≈ 17 cycles, 8th ≈ 35, quarter ≈ 70, half ≈ 140
-// 255 = rest (silence)
+// Everything Is Awesome — chorus (C major, ~116 BPM)
+// Control rate = 128 Hz  →  16th ≈ 17, 8th ≈ 33, quarter ≈ 66, half ≈ 132
+// 255 = rest
 // ---------------------------------------------------------------------------
 #define R 255
 
 static const uint8_t SONG_NOTES[] PROGMEM = {
-  72, 72, 72,  R, 70, 72,   // C5 C5 C5 [rest] Bb4 C5   — iconic three-hit opening
-  70, 72, 68,               // Bb4 C5 Ab4               — first descent
-  70, 72, 67,               // Bb4 C5 G4                — second descent
-  65, 63,  R,               // F4 Eb4 [rest]            — phrase resolution
+  // "Everything is awesome"
+  67, 67, 67, 67, 65, 67, 72,  R,
+  // "Everything is cool when you're part of a team"
+  67, 67, 67, 67, 65, 67, 69, 67, 65, 64, 62,  R,
+  // "Everything is awesome"
+  67, 67, 67, 67, 65, 67, 72,  R,
+  // "when you're living our dream"
+  67, 69, 67, 65, 64, 62, 60,  R,
 };
 
 static const uint8_t SONG_DURATIONS[] PROGMEM = {
-  17, 17, 17, 17, 17, 52,   // 16th 16th 16th 16th 16th dotted-8th
-  17, 17, 70,               // 16th 16th quarter
-  17, 17, 70,               // 16th 16th quarter
-  70, 140, 35,              // quarter half 16th(gap)
+  // "Everything is awesome"  (16th x5, 8th, half, 8th-rest)
+  17, 17, 17, 17, 17, 33, 132, 33,
+  // "Everything is cool when you're part of a team"
+  17, 17, 17, 17, 17, 33, 66, 33, 33, 33, 132, 33,
+  // "Everything is awesome"
+  17, 17, 17, 17, 17, 33, 132, 33,
+  // "when you're living our dream"
+  66, 66, 66, 66, 66, 66, 132, 66,
 };
 
 #define SONG_LENGTH sizeof(SONG_NOTES)
@@ -64,7 +72,7 @@ uint16_t  songTimer   = 0;
 bool      songPlaying = false;
 bool      songRest    = false;
 
-bool      axis        = false;  // alternates X/Y touchpad read each cycle
+bool      axis        = false;
 
 Smooth<int> kSmoothFreq1(SMOOTH_FREQ_NORMAL);
 Smooth<int> kSmoothFreq2(SMOOTH_FREQ_NORMAL);
@@ -109,12 +117,10 @@ int xcoor() {
 // Control
 // ---------------------------------------------------------------------------
 void readInputs() {
-  // Resistive touchpad requires alternating X/Y reads each cycle.
-  // Without driving X, the sense pins float and Y always reads as "touched".
   if (axis) {
     yVal = constrain(ycoor(), TOUCHPAD_Y_MIN, TOUCHPAD_Y_MAX);
   } else {
-    xcoor();  // drive X pins to settle the pad; reading discarded
+    xcoor();
   }
   axis = !axis;
 
